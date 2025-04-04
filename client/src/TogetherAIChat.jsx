@@ -135,11 +135,28 @@ const TogetherAIChat = ({ setView }) => {
 	useEffect(() => {
 		const checkMicrophonePermission = async () => {
 			try {
+				// Check if getUserMedia is supported
+				if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+					console.error("getUserMedia not supported in this browser");
+					setShowVoiceAlert(true);
+					return;
+				}
+
+				// Request microphone access
 				const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+				
 				// Stop all tracks to release the microphone
 				stream.getTracks().forEach(track => track.stop());
-				setShowVoiceAlert(false);
-				console.log("Microphone permission granted");
+				
+				// Check if we have permission
+				const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
+				if (permissionStatus.state === 'granted') {
+					console.log("Microphone permission granted");
+					setShowVoiceAlert(false);
+				} else {
+					console.warn("Microphone permission not granted:", permissionStatus.state);
+					setShowVoiceAlert(true);
+				}
 			} catch (error) {
 				console.error("Microphone permission error:", error);
 				setShowVoiceAlert(true);

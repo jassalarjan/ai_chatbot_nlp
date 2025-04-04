@@ -12,6 +12,7 @@ const VoiceRecognition = ({ onTranscript }) => {
     useEffect(() => {
         // Check if browser supports speech recognition
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            console.error('Speech recognition not supported in this browser');
             setIsSupported(false);
             setError('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
             return;
@@ -33,11 +34,17 @@ const VoiceRecognition = ({ onTranscript }) => {
             };
 
             recognitionInstance.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                console.log('Voice transcript:', transcript);
-                onTranscript(transcript);
-                setIsListening(false);
-                setRetryCount(0); // Reset retry count on success
+                if (event.results && event.results.length > 0 && event.results[0].length > 0) {
+                    const transcript = event.results[0][0].transcript;
+                    console.log('Voice transcript:', transcript);
+                    onTranscript(transcript);
+                    setIsListening(false);
+                    setRetryCount(0); // Reset retry count on success
+                } else {
+                    console.error('No transcript in results');
+                    setError('No speech detected. Please try speaking again.');
+                    setIsListening(false);
+                }
             };
 
             recognitionInstance.onerror = (event) => {
@@ -50,6 +57,10 @@ const VoiceRecognition = ({ onTranscript }) => {
                     setError('Microphone access denied. Please allow microphone access in your browser settings.');
                 } else if (event.error === 'no-speech') {
                     setError('No speech detected. Please try speaking again.');
+                } else if (event.error === 'audio-capture') {
+                    setError('No microphone detected. Please connect a microphone and try again.');
+                } else if (event.error === 'service-not-allowed') {
+                    setError('Speech recognition service not allowed. Please check your browser settings.');
                 } else {
                     setError(`Error: ${event.error}`);
                 }
@@ -87,6 +98,12 @@ const VoiceRecognition = ({ onTranscript }) => {
                 // Check if we've exceeded retry attempts
                 if (retryCount >= maxRetries) {
                     setError('Too many failed attempts. Please try again later or use text input.');
+                    return;
+                }
+                
+                // Check network connectivity
+                if (!navigator.onLine) {
+                    setError('Network error: Please check your internet connection.');
                     return;
                 }
                 
@@ -146,6 +163,16 @@ const VoiceRecognition = ({ onTranscript }) => {
                 </div>
             )}
             {error && getErrorMessage()}
+            
+            {/* Debug information - only visible in development */}
+            {process.env.NODE_ENV === 'development' && (
+                <div className="mt-2 text-xs text-gray-500">
+                    <p>Browser: {navigator.userAgent}</p>
+                    <p>Online: {navigator.onLine ? 'Yes' : 'No'}</p>
+                    <p>Speech API: {('webkitSpeechRecognition' in window) ? 'webkitSpeechRecognition' : ('SpeechRecognition' in window) ? 'SpeechRecognition' : 'Not supported'}</p>
+                    <p>Microphone: {navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'Available' : 'Not available'}</p>
+                </div>
+            )}
         </div>
     );
 };

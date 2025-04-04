@@ -47,19 +47,45 @@ async function getAIResponse(prompt) {
         // Read the authentication token
         const authToken = fs.readFileSync('test_auth_token.txt', 'utf8').trim();
         
-        const response = await axios.post('http://localhost:5000/api/chat', {
-            prompt,
-            sender: 'user',
-            userPreferences: '',
-            expertiseDomains: ''
-        }, {
+        // Configure axios with timeout and retry logic
+        const axiosInstance = axios.create({
+            timeout: 10000, // 10 second timeout
             headers: {
-                'Authorization': `Bearer ${authToken}`
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
             }
         });
-        return response.data.response;
+
+        // Add retry logic
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                const response = await axiosInstance.post('http://localhost:5000/api/chat', {
+                    prompt,
+                    sender: 'user',
+                    userPreferences: '',
+                    expertiseDomains: ''
+                });
+                return response.data.response;
+            } catch (error) {
+                retries--;
+                if (retries === 0) throw error;
+                
+                // Log the error and wait before retrying
+                console.log(`Request failed, retrying... (${retries} attempts remaining)`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
     } catch (error) {
-        console.error('Error getting AI response:', error.message);
+        if (error.code === 'ECONNREFUSED') {
+            console.error('Network error: Could not connect to the server. Please check if the server is running.');
+        } else if (error.code === 'ETIMEDOUT') {
+            console.error('Network error: Request timed out. Please check your internet connection.');
+        } else if (error.response) {
+            console.error('Server error:', error.response.status, error.response.data);
+        } else {
+            console.error('Error getting AI response:', error.message);
+        }
         return 'Error: Could not get AI response';
     }
 }
