@@ -391,12 +391,16 @@ const TogetherAIChat = ({ setView }) => {
 							placeholder="Type a message..."
 						/>
 						<div className="flex items-center gap-2">
-							<VoiceRecognition onTranscript={handleVoiceTranscript} />
+							<VoiceRecognition 
+								onTranscript={handleVoiceTranscript} 
+								className="relative z-10" 
+							/>
 							<button
 								type="submit"
-								className="bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 transition-colors"
+								className="bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center"
+								title="Send message"
 							>
-								<Send size={20} />
+								<Send className="h-5 w-5" />
 							</button>
 						</div>
 					</form>

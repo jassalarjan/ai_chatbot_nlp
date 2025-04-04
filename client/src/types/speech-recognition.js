@@ -1,22 +1,3 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        secure: false,
-      }
-    },
-  },
-})
-
-// Add JSDoc type definitions for Web Speech API
 /**
  * @typedef {Object} SpeechRecognitionEvent
  * @property {Array} results - The recognition results
@@ -35,9 +16,12 @@ export default defineConfig({
  * @property {Function} onend - Called when recognition ends
  */
 
-// Extend the Window interface using JSDoc
 /**
+ * Extends the Window interface to include Web Speech API
  * @typedef {Object} Window
  * @property {typeof SpeechRecognition} webkitSpeechRecognition - WebKit Speech Recognition API
  * @property {typeof SpeechRecognition} SpeechRecognition - Standard Speech Recognition API
  */
+
+// This file is used for JSDoc type definitions only
+// It doesn't export anything and is only used for documentation 
