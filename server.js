@@ -4,6 +4,7 @@ const dotenv = require("dotenv");
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const jwt = require("jsonwebtoken");
+const Together = require("together-ai"); // Ensure TogetherAI is imported
 
 dotenv.config();
 
@@ -226,17 +227,21 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
 	}
 
 	try {
-		// For testing purposes, generate a simulated response
-		const simulatedResponses = {
-			"Hello, how are you?": "I'm doing well, thank you for asking! How can I help you today?",
-			"What's the weather like today?": "I apologize, but I don't have access to real-time weather data. You would need to check a weather service or look outside for current conditions.",
-			"Tell me a joke": "Here's a programming joke: Why do programmers prefer dark mode? Because light attracts bugs!",
-			"What time is it?": "I'm an AI language model, so I don't have access to real-time information. You can check your device's clock for the current time."
-		};
+		const together = new Together({
+			apiKey: process.env.TOGETHER_AI_API_KEY, // Use API key from environment variables
+		});
 
-		const responseText = simulatedResponses[prompt] || "I understand you said: " + prompt + ". How can I help you with that?";
+		const aiResponse = await together.chat.completions.create({
+			messages: [
+				{ role: "system", content: CORE_IDENTITY },
+				{ role: "system", content: DEFAULT_BEHAVIOR },
+				{ role: "user", content: prompt }
+			],
+			model: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+		});
 
-		// Store the message and response
+		const responseText = aiResponse.choices[0]?.message?.content || "Aetheron: Sorry, I couldn't process your request.";
+
 		await new Promise((resolve, reject) => {
 			db.run(
 				"INSERT INTO messages (chat_id, sender, message, response) VALUES (?, ?, ?, ?)",
@@ -251,17 +256,13 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
 		res.json({
 			message: "Message received",
 			response: responseText,
-			chat_id: chat_id || 1
+			chat_id: chat_id || 1,
 		});
 	} catch (error) {
-		console.error("Detailed error in chat endpoint:", {
-			message: error.message,
-			stack: error.stack,
-			response: error.response?.data
-		});
-		res.status(500).json({ 
+		console.error("Error in TogetherAI integration:", error);
+		res.status(500).json({
 			error: "Internal server error",
-			details: error.message
+			details: error.message,
 		});
 	}
 });
