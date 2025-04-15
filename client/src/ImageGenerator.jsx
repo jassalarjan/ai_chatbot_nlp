@@ -89,7 +89,7 @@ const ImageGenerator = () => {
   return (
     <div className="image-generator-page">
       <div className="page-header">
-        <h1 className="page-title">Image Generator Chat</h1>
+        <h1 className="page-title">Aetheron Image Generation</h1>
         <button onClick={handleNewChat} className="new-chat-button">
           New Chat
         </button>

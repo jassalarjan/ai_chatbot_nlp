@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { Mic, MicOff } from 'lucide-react';
+import React, { useState } from 'react';
+import { Mic, StopCircle } from 'lucide-react';
 
 /**
  * VoiceRecognition component that allows users to input text using speech
@@ -10,78 +10,74 @@ import { Mic, MicOff } from 'lucide-react';
  */
 const VoiceRecognition = ({ onTranscript, className = '' }) => {
   const [isListening, setIsListening] = useState(false);
-  const [error, setError] = useState('');
+  const [recognition, setRecognition] = useState(null);
 
-  /**
-   * Starts the speech recognition process
-   */
-  const startListening = useCallback(() => {
-    setError('');
-    
-    // Check if browser supports speech recognition
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      setError('Speech recognition is not supported in this browser.');
-      return;
-    }
+  const startListening = () => {
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const newRecognition = new SpeechRecognition();
 
-    // Create speech recognition instance
-    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-    const recognition = new SpeechRecognition();
+      newRecognition.continuous = true;
+      newRecognition.interimResults = true;
 
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
+      newRecognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0])
+          .map(result => result.transcript)
+          .join('');
 
-    recognition.onstart = () => {
+        if (event.results[0].isFinal) {
+          onTranscript(transcript);
+          stopListening();
+        }
+      };
+
+      newRecognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        stopListening();
+      };
+
+      newRecognition.start();
+      setRecognition(newRecognition);
       setIsListening(true);
-    };
+    } else {
+      console.error('Speech recognition not supported in this browser');
+    }
+  };
 
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      onTranscript(transcript);
-      setIsListening(false);
-    };
+  const stopListening = () => {
+    if (recognition) {
+      recognition.stop();
+      setRecognition(null);
+    }
+    setIsListening(false);
+  };
 
-    recognition.onerror = (event) => {
-      if (event.error === 'network') {
-        setError('Network error: Please check your internet connection and try again.');
-      } else {
-        setError('Error occurred in recognition: ' + event.error);
-      }
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognition.start();
-  }, [onTranscript]);
+  const toggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
 
   return (
-    <div className={`relative inline-block ${className}`}>
-      <button
-        onClick={startListening}
-        disabled={isListening}
-        className={`flex items-center justify-center p-3 rounded-lg transition-all duration-200 ${
-          isListening
-            ? 'bg-red-500 text-white animate-pulse'
-            : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-        }`}
-        title={isListening ? 'Listening...' : 'Click to speak'}
-      >
-        {isListening ? (
-          <MicOff className="h-5 w-5" />
-        ) : (
-          <Mic className="h-5 w-5" />
-        )}
-      </button>
-      {error && (
-        <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 bg-red-100 text-red-700 px-3 py-1 rounded-md text-sm whitespace-nowrap z-50">
-          {error}
-        </div>
+    <button
+      onClick={toggleListening}
+      type="button"
+      className={`p-3 rounded-lg transition-colors flex items-center justify-center ${
+        isListening 
+          ? 'bg-red-600 hover:bg-red-700 text-white'
+          : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+      }`}
+      title={isListening ? 'Stop recording' : 'Start recording'}
+    >
+      {isListening ? (
+        <StopCircle className="h-5 w-5" />
+      ) : (
+        <Mic className="h-5 w-5" />
       )}
-    </div>
+    </button>
   );
 };
 

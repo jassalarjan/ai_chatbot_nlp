@@ -7,8 +7,11 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ExpertiseModal from "./ExpertiseModal";
 import VoiceRecognition from "./VoiceRecognition";
 import MessageFormatter from "./MessageFormatter";
+import api from "./api/axios";
 
 const apiUrl = import.meta.env.VITE_API_URL;
+// Update the API URL to use the correct frontend port
+const API_URL = "http://localhost:5173/api/chat";
 // Message formatter component
 const MessageFormatterComponent = ({ message }) => (
 	<ReactMarkdown
@@ -61,31 +64,44 @@ const TogetherAIChat = ({ setView }) => {
 		}
 	}, []);
 
-	// Add authentication header to axios requests
-	const authAxios = axios.create({
-		baseURL: '/api',
-		headers: {
-			'Authorization': `Bearer ${localStorage.getItem("authToken")}`
+	const fetchChatHistory = async () => {
+		try {
+			const response = await api.get('/chat-history');
+			if (response.data.chats && response.data.chats.length > 0) {
+				setChatHistory(response.data.chats);
+			} else {
+				console.log(response.data.message || 'No chat history found');
+				setChatHistory([]); // Set empty history if no chats exist
+			}
+		} catch (error) {
+			console.error('Error fetching chat history:', error);
+			// Check for auth errors
+			if (error.response?.status === 401 || error.response?.status === 403) {
+				handleLogout();
+				return;
+			}
+			setChatHistory([]); // Set empty history on error
 		}
-	});
+	};
+
+	const fetchOrCreateChat = async () => {
+		try {
+			const response = await api.get('/latest-chat');
+			if (response.data.chat_id) {
+				setChatId(response.data.chat_id);
+			} else {
+				console.log(response.data.message || 'No chats available');
+				setChatId(1); // Default to chat ID 1 if no chats exist
+			}
+		} catch (error) {
+			console.error('Error fetching latest chat:', error);
+			setChatId(1); // Default to chat ID 1 on error
+		}
+	};
 
 	useEffect(() => {
-		const fetchChatData = async () => {
-			try {
-				const latestChatResponse = await authAxios.get('/latest-chat');
-				setChatId(latestChatResponse.data.chat_id + 1);
-
-				const chatHistoryResponse = await authAxios.get('/chat-history');
-				setChatHistory(chatHistoryResponse.data);
-			} catch (error) {
-				if (error.response?.status === 401 || error.response?.status === 403) {
-					window.location.href = "/login";
-				}
-				console.error("Error fetching chat data:", error);
-			}
-		};
-
-		fetchChatData();
+		fetchChatHistory();
+		fetchOrCreateChat();
 	}, []);
 
 	useEffect(() => {
@@ -94,18 +110,21 @@ const TogetherAIChat = ({ setView }) => {
 		}
 	}, [messages]);
 
-	const handleSubmit = async (e) => {
-		e.preventDefault();
+	// Update the handleSendMessage function to save AI responses with sender as 'ai'
+	const handleSendMessage = async () => {
 		if (!prompt.trim()) return;
-
-		const newMessages = [...messages, { sender: "user", message: prompt }];
-		setMessages(newMessages);
 
 		try {
 			const userPreferences = localStorage.getItem("userPreferences") || "";
 			const expertiseDomain = localStorage.getItem("expertiseDomain") || "";
-			
-			const { data } = await authAxios.post('/chat', {
+
+			// Add user message to UI immediately
+			const userMessage = { sender: 'user', text: prompt };
+			setMessages(prev => [...prev, userMessage]);
+			setPrompt(''); // Clear input immediately for better UX
+
+			// Send message to server using the configured axios instance
+			const { data } = await api.post('/chat', {
 				prompt,
 				chat_id: chatId,
 				sender: "user",
@@ -113,21 +132,39 @@ const TogetherAIChat = ({ setView }) => {
 				expertiseDomains: expertiseDomain
 			});
 
-			setMessages((prevMessages) => [
-				...prevMessages,
-				{ sender: "ai", message: data.response },
-			]);
-			setPrompt("");
+			// Add bot response to UI
+			const botMessage = {
+				sender: 'ai',
+				text: data.response,
+			};
+			setMessages(prev => [...prev, botMessage]);
+
+				// Update chat ID if this was a new chat
+			if (data.chat_id !== chatId) {
+				setChatId(data.chat_id);
+				await fetchChatHistory();
+			}
+
 		} catch (error) {
+			console.error('Error sending message:', error);
+			let errorMessage = 'An error occurred while sending your message.';
+
 			if (error.response?.status === 401 || error.response?.status === 403) {
+				localStorage.removeItem("authToken");
 				window.location.href = "/login";
 				return;
+			} else if (error.response?.data?.error) {
+				errorMessage = error.response.data.error;
+			} else if (!navigator.onLine) {
+				errorMessage = 'You are offline. Please check your internet connection.';
 			}
-			console.error("Error fetching response:", error);
-			setMessages((prevMessages) => [
-				...prevMessages,
-				{ sender: "ai", message: "⚠️ Error: Could not fetch response" },
-			]);
+
+			// Add error message to UI
+			const errorBotMessage = { 
+				sender: 'ai', 
+				text: `Error: ${errorMessage}`
+			};
+			setMessages(prev => [...prev, errorBotMessage]);
 		}
 	};
 
@@ -181,7 +218,7 @@ const TogetherAIChat = ({ setView }) => {
 			setPrompt(transcript);
 			// Add a small delay before submitting to allow the user to see what was transcribed
 			setTimeout(() => {
-				handleSubmit({ preventDefault: () => {} });
+				handleSendMessage();
 			}, 500);
 		}
 	};
@@ -189,12 +226,12 @@ const TogetherAIChat = ({ setView }) => {
 	const handleChatSelect = async (chat) => {
 		setChatId(chat.chat_id);
 		try {
-			const response = await authAxios.get(`/chats/${chat.chat_id}/messages`);
+			const response = await api.get(`/chats/${chat.chat_id}/messages`);
 			const messages = response.data;
-			const formattedMessages = messages.flatMap((msg) => [
-				{ sender: "user", message: msg.message },
-				{ sender: "ai", message: msg.response },
-			]);
+			const formattedMessages = messages.map((msg) => ({
+				sender: msg.sender,
+				text: msg.sender === 'user' ? msg.message : msg.response
+			}));
 			setMessages(formattedMessages);
 		} catch (error) {
 			if (error.response?.status === 401 || error.response?.status === 403) {
@@ -208,16 +245,14 @@ const TogetherAIChat = ({ setView }) => {
 
 	const handleNewChat = async () => {
 		try {
-			const { data } = await authAxios.get('/latest-chat');
-			const newChatId = data.chat_id + 1;
-			setChatId(newChatId);
+			// Clear current chat state
 			setMessages([]);
-			setPrompt("");
+			setChatId(null);
+			setPrompt('');
+			
+			// Refresh chat history
+			await fetchChatHistory();
 		} catch (error) {
-			if (error.response?.status === 401 || error.response?.status === 403) {
-				window.location.href = "/login";
-				return;
-			}
 			console.error("Error creating new chat:", error);
 		}
 	};
@@ -230,47 +265,47 @@ const TogetherAIChat = ({ setView }) => {
 	const handleKeyDown = (e) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			handleSubmit(e);
+			handleSendMessage();
 		}
 	};
 
 	return (
-		<div className="h-screen flex bg-gray-50">
+		<div className="flex h-screen bg-gradient-to-br from-gray-900 to-gray-800">
 			{/* Sidebar */}
-			<div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+			<div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
 				{/* User Profile Section */}
-				<div className="p-4 border-b border-gray-200">
+				<div className="p-4 border-b border-gray-700">
 					<div className="relative">
 						<button
 							onClick={() => setDropdownOpen(!dropdownOpen)}
-							className="flex items-center space-x-3 w-full p-2 rounded-lg hover:bg-gray-50 transition-colors"
+							className="flex items-center space-x-3 w-full p-3 rounded-lg hover:bg-gray-700 transition-colors"
 						>
-							<div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
-								<User className="w-6 h-6 text-indigo-600" />
+							<div className="w-10 h-10 bg-indigo-500/20 rounded-full flex items-center justify-center">
+								<User className="w-6 h-6 text-indigo-400" />
 							</div>
 							<div className="flex-1 text-left">
-								<div className="font-medium text-gray-900">
+								<div className="font-medium text-gray-100">
 									{localStorage.getItem("username") || "User"}
 								</div>
-								<div className="text-sm text-gray-500">Click to manage</div>
+								<div className="text-sm text-gray-400">Click to manage</div>
 							</div>
 						</button>
 
 						{dropdownOpen && (
-							<div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-lg border border-gray-200 py-2">
+							<div className="absolute top-full left-0 right-0 mt-2 bg-gray-800 rounded-lg shadow-lg border border-gray-700 py-2">
 								<button
 									onClick={() => {
 										setShowModal(true);
 										setDropdownOpen(false);
 									}}
-									className="flex items-center space-x-3 w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-50"
+									className="flex items-center space-x-3 w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700"
 								>
 									<Settings className="w-4 h-4" />
 									<span>Edit System Prompt</span>
 								</button>
 								<button
 									onClick={handleLogout}
-									className="flex items-center space-x-3 w-full px-4 py-2 text-left text-red-600 hover:bg-gray-50"
+									className="flex items-center space-x-3 w-full px-4 py-2 text-left text-red-400 hover:bg-gray-700"
 								>
 									<LogOut className="w-4 h-4" />
 									<span>Logout</span>
@@ -284,15 +319,16 @@ const TogetherAIChat = ({ setView }) => {
 				<div className="p-4">
 					<button
 						onClick={handleNewChat}
-						className="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors"
+						className="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
 					>
+						<Plus className="w-5 h-5" />
 						New Chat
 					</button>
 				</div>
 
 				{/* Chat History */}
 				<div className="flex-1 overflow-y-auto p-4">
-					<h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+					<h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
 						Chat History
 					</h2>
 					<div className="space-y-2">
@@ -301,12 +337,15 @@ const TogetherAIChat = ({ setView }) => {
 								key={chat.chat_id}
 								className={`w-full text-left px-4 py-2 rounded-lg transition-colors ${
 									chat.chat_id === chatId
-										? "bg-indigo-50 text-indigo-700"
-										: "hover:bg-gray-50 text-gray-700"
+										? "bg-indigo-500/20 text-indigo-400"
+										: "text-gray-300 hover:bg-gray-700"
 								}`}
 								onClick={() => handleChatSelect(chat)}
 							>
-								Chat {chat.chat_id}
+								<div className="flex items-center gap-3">
+									<MessageSquare className="w-4 h-4" />
+									<span>Chat {chat.chat_id}</span>
+								</div>
 							</button>
 						))}
 					</div>
@@ -314,7 +353,7 @@ const TogetherAIChat = ({ setView }) => {
 			</div>
 
 			{/* Chat Window */}
-			<div className="flex-1 flex flex-col">
+			<div className="flex-1 flex flex-col bg-gradient-to-br from-gray-800 to-gray-900">
 				<div ref={chatBoxRef} className="flex-1 overflow-y-auto p-6 space-y-6">
 					{messages.map((msg, index) => (
 						<div
@@ -327,10 +366,10 @@ const TogetherAIChat = ({ setView }) => {
 								className={`max-w-2xl rounded-lg p-4 ${
 									msg.sender === "user"
 										? "bg-indigo-600 text-white"
-										: "bg-white shadow-sm border border-gray-200"
+										: "bg-gray-800 text-gray-100 border border-gray-700"
 								}`}
 							>
-								<MessageFormatter message={msg.message} />
+								<MessageFormatter message={msg.text} />
 							</div>
 						</div>
 					))}
@@ -338,20 +377,22 @@ const TogetherAIChat = ({ setView }) => {
 
 				{/* Voice Alert */}
 				{showVoiceAlert && (
-					<div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
-						<div className="flex">
-							<div className="flex-shrink-0">
-								<svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-									<path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-								</svg>
-							</div>
-							<div className="ml-3">
-								<p className="text-sm text-yellow-700">
-									Microphone access is required for voice input. Please enable it in your browser settings.
-								</p>
-								<p className="text-xs text-yellow-600 mt-1">
-									Click the lock/info icon in your browser's address bar to manage permissions.
-								</p>
+					<div className="mx-6 mb-4">
+						<div className="bg-yellow-900/50 border-l-4 border-yellow-500 p-4 rounded-r-lg">
+							<div className="flex">
+								<div className="flex-shrink-0">
+									<svg className="h-5 w-5 text-yellow-500" viewBox="0 0 20 20" fill="currentColor">
+										<path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+									</svg>
+								</div>
+								<div className="ml-3">
+									<p className="text-sm text-yellow-200">
+										Microphone access is required for voice input
+									</p>
+									<p className="text-xs text-yellow-300/80 mt-1">
+										Click the lock icon in your browser's address bar to manage permissions
+									</p>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -359,31 +400,33 @@ const TogetherAIChat = ({ setView }) => {
 
 				{/* Network Status Alert */}
 				{!checkNetworkConnectivity() && (
-					<div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
-						<div className="flex">
-							<div className="flex-shrink-0">
-								<svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-									<path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
-									<path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
-								</svg>
-							</div>
-							<div className="ml-3">
-								<p className="text-sm text-red-700">
-									No internet connection. Voice recognition requires an active internet connection.
-								</p>
-								<p className="text-xs text-red-600 mt-1">
-									Please check your network connection and try again.
-								</p>
+					<div className="mx-6 mb-4">
+						<div className="bg-red-900/50 border-l-4 border-red-500 p-4 rounded-r-lg">
+							<div className="flex">
+								<div className="flex-shrink-0">
+									<svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+										<path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+										<path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+									</svg>
+								</div>
+								<div className="ml-3">
+									<p className="text-sm text-red-200">
+										No internet connection
+									</p>
+									<p className="text-xs text-red-300/80 mt-1">
+										Please check your network connection and try again
+									</p>
+								</div>
 							</div>
 						</div>
 					</div>
 				)}
 
 				{/* Input Area */}
-				<div className="border-t border-gray-200 p-4 bg-white">
-					<form onSubmit={handleSubmit} className="flex gap-4">
+				<div className="border-t border-gray-700 p-4 bg-gray-800/50 backdrop-blur-sm">
+					<form onSubmit={handleSendMessage} className="flex gap-4">
 						<textarea
-							className="flex-1 resize-none rounded-lg border border-gray-200 p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+							className="flex-1 resize-none rounded-lg bg-gray-900 border border-gray-700 p-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
 							value={prompt}
 							onChange={(e) => setPrompt(e.target.value)}
 							onKeyDown={handleKeyDown}
