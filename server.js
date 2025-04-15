@@ -5,7 +5,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const jwt = require("jsonwebtoken");
 const Together = require("together-ai"); // Ensure TogetherAI is imported
-
+const imageRoutes = require("./image_gen.js");
 dotenv.config();
 
 const app = express();
@@ -19,29 +19,42 @@ app.use(cors({
 	credentials: true,
 	maxAge: 86400 // 24 hours
 }));
-app.use(express.json());
-
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-	const authHeader = req.headers['authorization'];
-	const token = authHeader && authHeader.split(' ')[1];
-
-	if (!token) {
-		return res.status(401).json({ error: "Authentication token required" });
-	}
-
-	jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
-		if (err) {
-			return res.status(403).json({ error: "Invalid or expired token" });
-		}
-		req.user = user;
-		next();
-	});
-};
+app.use(express.json({ limit: "10mb" }));
 
 // Health check route
 app.get("/api/health", (req, res) => {
 	res.json({ status: "OK", timestamp: new Date() });
+});
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+    console.log('Authenticating token...');
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: "Authentication token required" });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: "Invalid or expired token" });
+        }
+        req.user = user;
+        console.log('Authentication successful for user:', req.user);
+        next();
+    });
+};
+
+// Route setup
+app.use("/api/image", authenticateToken, imageRoutes);
+
+// Add debugging middleware
+app.use((req, res, next) => {
+	console.log(`Incoming Request: ${req.method} ${req.url}`);
+	console.log('Headers:', req.headers);
+	console.log('Body:', req.body);
+	next();
 });
 
 // Core identity that cannot be changed by users
@@ -66,10 +79,14 @@ const db = new sqlite3.Database(dbPath, (err) => {
 	console.log('✅ Connected to SQLite database');
 });
 
-// Initialize DB (Creates tables if they don't exist)
+// Share db instance with routes
+app.set('db', db);
+
+// Add debugging to database initialization
 const initializeDB = () => {
 	return new Promise((resolve, reject) => {
 		db.serialize(() => {
+			console.log('Initializing database...');
 			// Create users table
 			db.run(`
 				CREATE TABLE IF NOT EXISTS users (
@@ -105,6 +122,7 @@ const initializeDB = () => {
 				CREATE TABLE IF NOT EXISTS messages (
 					id INTEGER PRIMARY KEY AUTOINCREMENT,
 					chat_id INTEGER,
+					generation_type TEXT DEFAULT 'text',
 					sender TEXT,
 					message TEXT,
 					response TEXT,
@@ -132,9 +150,122 @@ const initializeDB = () => {
 				if (err) {
 					console.error("Error creating user_preferences table:", err);
 					reject(err);
+				}
+			});
+
+			// Create images table
+			db.run(`
+				CREATE TABLE IF NOT EXISTS images (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					chat_id INTEGER,
+					user_id INTEGER,
+					prompt TEXT,
+					image_data TEXT,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
+					FOREIGN KEY (user_id) REFERENCES users(id)
+				)
+			`, (err) => {
+				if (err) {
+					console.error("Error creating images table:", err);
+					reject(err);
+				}
+			});
+
+			// Create image_generations table
+			db.run(`
+				CREATE TABLE IF NOT EXISTS image_generations (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					chat_id INTEGER,
+					user_id INTEGER,
+					prompt TEXT,
+					image_data TEXT,
+					model_used TEXT,
+					width INTEGER,
+					height INTEGER,
+					generation_config TEXT,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
+					FOREIGN KEY (user_id) REFERENCES users(id)
+				)
+			`, (err) => {
+				if (err) {
+					console.error("Error creating image_generations table:", err);
+					reject(err);
+				}
+			});
+
+			// Create text_generations table
+			db.run(`
+				CREATE TABLE IF NOT EXISTS text_generations (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					chat_id INTEGER,
+					user_id INTEGER,
+					prompt TEXT,
+					response TEXT,
+					model_used TEXT,
+					temperature REAL,
+					max_tokens INTEGER,
+					generation_config TEXT,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
+					FOREIGN KEY (user_id) REFERENCES users(id)
+				)
+			`, (err) => {
+				if (err) {
+					console.error("Error creating text_generations table:", err);
+					reject(err);
+				}
+			});
+
+			// Create audio_generations table
+			db.run(`
+				CREATE TABLE IF NOT EXISTS audio_generations (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					chat_id INTEGER,
+					user_id INTEGER,
+					prompt TEXT,
+					audio_data TEXT,
+					model_used TEXT,
+					voice_id TEXT,
+					duration_seconds INTEGER,
+					format TEXT,
+					generation_config TEXT,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
+					FOREIGN KEY (user_id) REFERENCES users(id)
+				)
+			`, (err) => {
+				if (err) {
+					console.error("Error creating audio_generations table:", err);
+					reject(err);
+				}
+			});
+
+			// Create code_generations table
+			db.run(`
+				CREATE TABLE IF NOT EXISTS code_generations (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					chat_id INTEGER,
+					user_id INTEGER,
+					prompt TEXT,
+					code_response TEXT,
+					language TEXT,
+					model_used TEXT,
+					temperature REAL,
+					generation_config TEXT,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
+					FOREIGN KEY (user_id) REFERENCES users(id)
+				)
+			`, (err) => {
+				if (err) {
+					console.error("Error creating code_generations table:", err);
+					reject(err);
 				} else {
 					resolve();
 				}
+				console.log('Database initialization complete.');
 			});
 		});
 	});
@@ -219,6 +350,7 @@ app.post("/api/login", (req, res) => {
 
 // Chat API - Handles User Input & AI Response
 app.post("/api/chat", authenticateToken, async (req, res) => {
+	console.log('Chat API called with body:', req.body);
 	const { prompt, sender, chat_id } = req.body;
 	const userId = req.user.userId;
 	
@@ -228,24 +360,58 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
 
 	try {
 		const together = new Together({
-			apiKey: process.env.TOGETHER_AI_API_KEY, // Use API key from environment variables
+			apiKey: process.env.TOGETHER_AI_API_KEY,
 		});
 
-		const aiResponse = await together.chat.completions.create({
+		const modelConfig = {
 			messages: [
 				{ role: "system", content: CORE_IDENTITY },
 				{ role: "system", content: DEFAULT_BEHAVIOR },
 				{ role: "user", content: prompt }
 			],
 			model: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
-		});
+			temperature: 0.7,
+			max_tokens: 2048
+		};
 
+		const aiResponse = await together.chat.completions.create(modelConfig);
 		const responseText = aiResponse.choices[0]?.message?.content || "Aetheron: Sorry, I couldn't process your request.";
 
+		// Save to text_generations table
 		await new Promise((resolve, reject) => {
 			db.run(
-				"INSERT INTO messages (chat_id, sender, message, response) VALUES (?, ?, ?, ?)",
-				[chat_id || 1, sender, prompt, responseText],
+				`INSERT INTO text_generations (
+					chat_id,
+					user_id,
+					prompt,
+					response,
+					model_used,
+					temperature,
+					max_tokens,
+					generation_config
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				[
+					chat_id || 1,
+					userId,
+					prompt,
+					responseText,
+					modelConfig.model,
+					modelConfig.temperature,
+					modelConfig.max_tokens,
+					JSON.stringify(modelConfig)
+				],
+				function(err) {
+					if (err) reject(err);
+					else resolve();
+				}
+			);
+		});
+
+		// Also save to messages table for chat history (with type)
+		await new Promise((resolve, reject) => {
+			db.run(
+				"INSERT INTO messages (chat_id, sender, message, response, generation_type) VALUES (?, ?, ?, ?, ?)",
+				[chat_id || 1, sender, prompt, responseText, 'text'],
 				(err) => {
 					if (err) reject(err);
 					else resolve();
@@ -253,6 +419,7 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
 			);
 		});
 
+		console.log('AI response:', responseText);
 		res.json({
 			message: "Message received",
 			response: responseText,
@@ -270,16 +437,24 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
 // Protected chat history endpoint
 app.get("/api/chat-history", authenticateToken, (req, res) => {
 	const userId = req.user.userId;
-	
+
 	db.all(
-		"SELECT DISTINCT c.chat_id, MAX(m.timestamp) as last_message_time FROM chats c LEFT JOIN messages m ON c.chat_id = m.chat_id WHERE c.user_id = ? GROUP BY c.chat_id ORDER BY last_message_time DESC",
+		`SELECT DISTINCT c.chat_id, MAX(m.timestamp) as last_message_time 
+		 FROM chats c 
+		 LEFT JOIN messages m ON c.chat_id = m.chat_id 
+		 WHERE c.user_id = ? 
+		 GROUP BY c.chat_id 
+		 ORDER BY last_message_time DESC`,
 		[userId],
 		(err, rows) => {
 			if (err) {
 				console.error("Error fetching chat history:", err);
 				return res.status(500).json({ error: "Internal server error" });
 			}
-			res.json(rows);
+			if (!rows || rows.length === 0) {
+				return res.json({ message: "No chat history found", chats: [] });
+			}
+			res.json({ chats: rows });
 		}
 	);
 });
@@ -287,9 +462,13 @@ app.get("/api/chat-history", authenticateToken, (req, res) => {
 // Protected latest chat endpoint
 app.get("/api/latest-chat", authenticateToken, (req, res) => {
 	const userId = req.user.userId;
-	
+
 	db.get(
-		"SELECT chat_id FROM chats WHERE user_id = ? ORDER BY chat_id DESC LIMIT 1",
+		`SELECT chat_id 
+		 FROM chats 
+		 WHERE user_id = ? 
+		 ORDER BY chat_id DESC 
+		 LIMIT 1`,
 		[userId],
 		(err, row) => {
 			if (err) {
@@ -297,7 +476,8 @@ app.get("/api/latest-chat", authenticateToken, (req, res) => {
 				return res.status(500).json({ error: "Internal server error" });
 			}
 			res.json({
-				chat_id: row ? row.chat_id : 0
+				chat_id: row ? row.chat_id : null,
+				message: row ? "Latest chat found" : "No chats available"
 			});
 		}
 	);

@@ -13,8 +13,11 @@ import axios from "axios";
 import Chat from "./TogetherAIChat";
 import LoginSignup from "./LoginSignup";
 import Profile from "./Profile";
+import Sidebar from './components/Sidebar';
+import ImageGenerator from "./ImageGenerator";
+import TogetherAIChat from './TogetherAIChat';
 
-// Import ProtectedRoute for route protection
+// Import ProtectedRoute from the root src folder
 import ProtectedRoute from "./ProtectedRoute";
 
 function App() {
@@ -33,23 +36,16 @@ function App() {
 
 	return (
 		<Router>
+			 {isAuthenticated && <Sidebar />}
 			<Routes>
 				{/* Public routes */}
 				<Route 
 					path="/login" 
-					element={
-						isAuthenticated ? 
-						<Navigate to="/chat" replace /> : 
-						<LoginSignup />
-					} 
+					element={isAuthenticated ? <Navigate to="/chat" replace /> : <LoginSignup />} 
 				/>
 				<Route 
 					path="/register" 
-					element={
-						isAuthenticated ? 
-						<Navigate to="/chat" replace /> : 
-						<LoginSignup />
-					} 
+					element={isAuthenticated ? <Navigate to="/chat" replace /> : <LoginSignup />} 
 				/>
 
 				{/* Protected routes */}
@@ -69,10 +65,38 @@ function App() {
 						</ProtectedRoute>
 					}
 				/>
+				<Route
+					path="/image-generator"
+					element={
+						<ProtectedRoute>
+							<ImageGenerator />
+						</ProtectedRoute>
+					}
+				/>
+				<Route
+					path="/nlp"
+					element={
+						<ProtectedRoute>
+							<TogetherAIChat />
+						</ProtectedRoute>
+					}
+				/>
 
-				{/* Redirect root to chat if authenticated, otherwise to login */}
+				{/* Root route */}
 				<Route
 					path="/"
+					element={
+						isAuthenticated ? (
+							<Navigate to="/chat" replace />
+						) : (
+							<Navigate to="/login" replace />
+						)
+					}
+				/>
+
+				{/* Catch-all route for undefined paths */}
+				<Route
+					path="*"
 					element={
 						isAuthenticated ? (
 							<Navigate to="/chat" replace />

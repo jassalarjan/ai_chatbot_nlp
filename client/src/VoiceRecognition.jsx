@@ -43,7 +43,11 @@ const VoiceRecognition = ({ onTranscript, className = '' }) => {
     };
 
     recognition.onerror = (event) => {
-      setError('Error occurred in recognition: ' + event.error);
+      if (event.error === 'network') {
+        setError('Network error: Please check your internet connection and try again.');
+      } else {
+        setError('Error occurred in recognition: ' + event.error);
+      }
       setIsListening(false);
     };
 
