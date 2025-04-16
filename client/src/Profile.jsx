@@ -22,7 +22,7 @@ const Profile = () => {
 	useEffect(() => {
 		const fetchUserData = async () => {
 			try {
-				const token = localStorage.getItem("token");
+				const token = localStorage.getItem("authToken"); // Updated key to match login process
 				console.log("Token from localStorage:", token); // Debug log
 
 				if (!token) {
@@ -83,7 +83,7 @@ const Profile = () => {
 		setSuccess("");
 
 		try {
-			const token = localStorage.getItem("token");
+			const token = localStorage.getItem("authToken"); // Updated key to match login process
 			if (!token) {
 				setError("Please log in to update your profile");
 				navigate("/login");
@@ -124,6 +124,41 @@ const Profile = () => {
 			if (err.response?.status === 401) {
 				localStorage.removeItem("token");
 				navigate("/login");
+			}
+		}
+	};
+
+	const handleLogout = () => {
+		localStorage.removeItem("token");
+		navigate("/login");
+	};
+
+	const handleDeleteChatHistory = async () => {
+		if (
+			window.confirm(
+				"Are you sure you want to delete all chat history? This action cannot be undone."
+			)
+		) {
+			try {
+				const token = localStorage.getItem("authToken"); // Updated key to match login process
+				if (!token) {
+					setError("Please log in to delete chat history");
+					navigate("/login");
+					return;
+				}
+
+				await axios.delete("http://localhost:5000/api/chat-history", {
+					headers: {
+						Authorization: `Bearer ${token}`,
+					},
+				});
+
+				alert("Chat history deleted successfully.");
+			} catch (err) {
+				console.error("Error deleting chat history:", err);
+				setError(
+					err.response?.data?.message || "Failed to delete chat history"
+				);
 			}
 		}
 	};
@@ -313,7 +348,21 @@ const Profile = () => {
 							>
 								Edit Profile
 							</button>
-						)}
+							)}
+						<button
+							type="button"
+							className="btn btn-danger"
+							onClick={handleLogout}
+						>
+							Logout
+						</button>
+						<button
+							type="button"
+							className="btn btn-warning"
+							onClick={handleDeleteChatHistory}
+						>
+							Delete All Chat History
+						</button>
 					</div>
 				</form>
 			</div>

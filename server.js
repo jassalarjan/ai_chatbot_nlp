@@ -18,7 +18,7 @@ app.use(cors({
 	allowedHeaders: ['Content-Type', 'Authorization'],
 	credentials: true,
 	maxAge: 86400 // 24 hours
-}));
+}));         
 app.use(express.json({ limit: "10mb" }));
 
 // Health check route
@@ -449,46 +449,46 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
             max_tokens: 2048
         };
 
+        console.log("Model configuration:", modelConfig);
+
         const aiResponse = await together.chat.completions.create(modelConfig);
         const responseText = aiResponse.choices[0]?.message?.content || "Sorry, I couldn't process your request.";
 
-        // Save to database in a transaction
-        await new Promise((resolve, reject) => {
-            db.run("BEGIN TRANSACTION");
-            
-            db.run(
-                `INSERT INTO text_generations (
-                    chat_id, user_id, prompt, response, model_used,
-                    temperature, max_tokens, generation_config
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    chat_id, userId, prompt, responseText,
-                    modelConfig.model, modelConfig.temperature,
-                    modelConfig.max_tokens, JSON.stringify(modelConfig)
-                ],
-                function(err) {
-                    if (err) {
-                        db.run("ROLLBACK");
-                        reject(err);
-                        return;
-                    }
+        console.log("AI Response:", responseText);
 
-                    db.run(
-                        "INSERT INTO messages (chat_id, sender, message, response, generation_type) VALUES (?, ?, ?, ?, ?)",
-                        [chat_id, sender, prompt, responseText, 'text'],
-                        function(err) {
-                            if (err) {
-                                db.run("ROLLBACK");
-                                reject(err);
-                                return;
-                            }
-                            
-                            db.run("COMMIT");
-                            resolve();
+        // Save both user message and AI response in a transaction
+        await new Promise((resolve, reject) => {
+            db.serialize(() => {
+                db.run("BEGIN TRANSACTION");
+                
+                // Save user message
+                db.run(
+                    "INSERT INTO messages (chat_id, sender, message, response, generation_type) VALUES (?, ?, ?, NULL, ?)",
+                    [chat_id, "user", prompt, 'text'],
+                    function(err) {
+                        if (err) {
+                            db.run("ROLLBACK");
+                            reject(err);
+                            return;
                         }
-                    );
-                }
-            );
+                        
+                        // Save AI response
+                        db.run(
+                            "INSERT INTO messages (chat_id, sender, message, response, generation_type) VALUES (?, ?, NULL, ?, ?)",
+                            [chat_id, "ai", responseText, 'text'],
+                            function(err) {
+                                if (err) {
+                                    db.run("ROLLBACK");
+                                    reject(err);
+                                    return;
+                                }
+                                db.run("COMMIT");
+                                resolve();
+                            }
+                        );
+                    }
+                );
+            });
         });
 
         res.json({
@@ -721,6 +721,28 @@ app.put("/api/user-preferences/:userId", (req, res) => {
 			});
 		}
 	);
+});
+
+// Add a new endpoint to fetch user details
+app.get("/api/user", authenticateToken, (req, res) => {
+    const userId = req.user.userId;
+
+    db.get(
+        "SELECT id, username, email FROM users WHERE id = ?",
+        [userId],
+        (err, row) => {
+            if (err) {
+                console.error("Error fetching user details:", err);
+                return res.status(500).json({ error: "Internal server error" });
+            }
+
+            if (!row) {
+                return res.status(404).json({ error: "User not found" });
+            }
+
+            res.json(row);
+        }
+    );
 });
 
 // Start server

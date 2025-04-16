@@ -5,7 +5,6 @@ import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ExpertiseModal from "./ExpertiseModal";
-import VoiceRecognition from "./VoiceRecognition";
 import MessageFormatter from "./MessageFormatter";
 import api from "./api/axios";
 
@@ -49,10 +48,9 @@ const TogetherAIChat = ({ setView }) => {
 	const [prompt, setPrompt] = useState("");
 	const [chatId, setChatId] = useState(null);
 	const [messages, setMessages] = useState([]);
-	const [chatHistory, setChatHistory] = useState([]);
+	const [chatHistory, setChatHistory] = useState([]); // Add missing state for chat history
 	const [dropdownOpen, setDropdownOpen] = useState(false);
 	const [showModal, setShowModal] = useState(false);
-	const [showVoiceAlert, setShowVoiceAlert] = useState(false);
 	const chatBoxRef = useRef(null);
 
 	// Check authentication on component mount
@@ -168,41 +166,6 @@ const TogetherAIChat = ({ setView }) => {
 		}
 	};
 
-	// Check for microphone permissions
-	useEffect(() => {
-		const checkMicrophonePermission = async () => {
-			try {
-				// Check if getUserMedia is supported
-				if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-					console.error("getUserMedia not supported in this browser");
-					setShowVoiceAlert(true);
-					return;
-				}
-
-				// Request microphone access
-				const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-				
-				// Stop all tracks to release the microphone
-				stream.getTracks().forEach(track => track.stop());
-				
-				// Check if we have permission
-				const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
-				if (permissionStatus.state === 'granted') {
-					console.log("Microphone permission granted");
-					setShowVoiceAlert(false);
-				} else {
-					console.warn("Microphone permission not granted:", permissionStatus.state);
-					setShowVoiceAlert(true);
-				}
-			} catch (error) {
-				console.error("Microphone permission error:", error);
-				setShowVoiceAlert(true);
-			}
-		};
-
-		checkMicrophonePermission();
-	}, []);
-
 	// Add a function to check network connectivity
 	const checkNetworkConnectivity = () => {
 		if (!navigator.onLine) {
@@ -212,17 +175,6 @@ const TogetherAIChat = ({ setView }) => {
 		return true;
 	};
 
-	const handleVoiceTranscript = (transcript) => {
-		console.log("Voice transcript received:", transcript);
-		if (transcript && transcript.trim()) {
-			setPrompt(transcript);
-			// Add a small delay before submitting to allow the user to see what was transcribed
-			setTimeout(() => {
-				handleSendMessage();
-			}, 500);
-		}
-	};
-
 	const handleChatSelect = async (chat) => {
 		setChatId(chat.chat_id);
 		try {
@@ -230,7 +182,7 @@ const TogetherAIChat = ({ setView }) => {
 			const messages = response.data;
 			const formattedMessages = messages.map((msg) => ({
 				sender: msg.sender,
-				text: msg.sender === 'user' ? msg.message : msg.response
+				text: msg.message || msg.response // Use message for user, response for AI
 			}));
 			setMessages(formattedMessages);
 		} catch (error) {
@@ -270,9 +222,9 @@ const TogetherAIChat = ({ setView }) => {
 	};
 
 	return (
-		<div className="flex h-screen bg-gradient-to-br from-gray-900 to-gray-800">
+		<div className="flex h-screen bg-white">
 			{/* Sidebar */}
-			<div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
+			<div className="w-80 bg-white border-r border-gray-300 flex flex-col">
 				{/* User Profile Section */}
 				<div className="p-4 border-b border-gray-700">
 					<div className="relative">
@@ -353,7 +305,7 @@ const TogetherAIChat = ({ setView }) => {
 			</div>
 
 			{/* Chat Window */}
-			<div className="flex-1 flex flex-col bg-gradient-to-br from-gray-800 to-gray-900">
+			<div className="flex-1 flex flex-col bg-white">
 				<div ref={chatBoxRef} className="flex-1 overflow-y-auto p-6 space-y-6">
 					{messages.map((msg, index) => (
 						<div
@@ -365,8 +317,8 @@ const TogetherAIChat = ({ setView }) => {
 							<div
 								className={`max-w-2xl rounded-lg p-4 ${
 									msg.sender === "user"
-										? "bg-indigo-600 text-white"
-										: "bg-gray-800 text-gray-100 border border-gray-700"
+										? "bg-blue-100 text-blue-800"
+										: "bg-gray-100 text-gray-800 border border-gray-300"
 								}`}
 							>
 								<MessageFormatter message={msg.text} />
@@ -375,28 +327,7 @@ const TogetherAIChat = ({ setView }) => {
 					))}
 				</div>
 
-				{/* Voice Alert */}
-				{showVoiceAlert && (
-					<div className="mx-6 mb-4">
-						<div className="bg-yellow-900/50 border-l-4 border-yellow-500 p-4 rounded-r-lg">
-							<div className="flex">
-								<div className="flex-shrink-0">
-									<svg className="h-5 w-5 text-yellow-500" viewBox="0 0 20 20" fill="currentColor">
-										<path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-									</svg>
-								</div>
-								<div className="ml-3">
-									<p className="text-sm text-yellow-200">
-										Microphone access is required for voice input
-									</p>
-									<p className="text-xs text-yellow-300/80 mt-1">
-										Click the lock icon in your browser's address bar to manage permissions
-									</p>
-								</div>
-							</div>
-						</div>
-					</div>
-				)}
+				
 
 				{/* Network Status Alert */}
 				{!checkNetworkConnectivity() && (
@@ -423,29 +354,23 @@ const TogetherAIChat = ({ setView }) => {
 				)}
 
 				{/* Input Area */}
-				<div className="border-t border-gray-700 p-4 bg-gray-800/50 backdrop-blur-sm">
+				<div className="border-t border-gray-300 p-4 bg-gray-50">
 					<form onSubmit={handleSendMessage} className="flex gap-4">
 						<textarea
-							className="flex-1 resize-none rounded-lg bg-gray-900 border border-gray-700 p-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+							className="flex-1 resize-none rounded-lg bg-white border border-gray-300 p-3 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 							value={prompt}
 							onChange={(e) => setPrompt(e.target.value)}
 							onKeyDown={handleKeyDown}
 							rows="1"
 							placeholder="Type a message..."
 						/>
-						<div className="flex items-center gap-2">
-							<VoiceRecognition 
-								onTranscript={handleVoiceTranscript} 
-								className="relative z-10" 
-							/>
-							<button
-								type="submit"
-								className="bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center"
-								title="Send message"
-							>
-								<Send className="h-5 w-5" />
-							</button>
-						</div>
+						<button
+							type="submit"
+							className="bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center"
+							title="Send message"
+						>
+							<Send className="h-5 w-5" />
+						</button>
 					</form>
 				</div>
 			</div>

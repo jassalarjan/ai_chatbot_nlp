@@ -4,15 +4,21 @@
   top: 0;
   left: 0;
   height: 100%;
-  width: 60px;
-  background-color: #2a2a3e;
+  width: 250px; /* Adjusted width for better layout */
+  background-color: #ffffff; /* White background */
+  border-right: 1px solid #e0e0e0; /* Light gray border */
   transition: width 0.3s ease;
   overflow: hidden;
   z-index: 1000;
 }
 
 .sidebar.expanded {
-  width: 200px;
+  width: 300px; /* Slightly wider when expanded */
+}
+
+/* Add explicit styles for the collapsed state */
+.sidebar.collapsed {
+  width: 60px; /* Narrower width for collapsed state */
 }
 
 .sidebar-list {
@@ -21,41 +27,38 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start; /* Align items to the left */
 }
 
 .sidebar-list li {
   width: 100%;
-  text-align: center;
-  margin: 20px 0;
+  text-align: left; /* Align text to the left */
+  margin: 15px 0;
 }
 
 .sidebar-list li a {
   text-decoration: none;
-  color: #fff;
+  color: #333333; /* Dark gray text */
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 10px;
-  transition: background-color 0.3s ease;
+  padding: 10px 15px;
+  border-radius: 8px;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .sidebar-list li a:hover {
-  background-color: #444;
+  background-color: #f1f1f1; /* Light gray hover effect */
+  color: #007bff; /* Professional blue on hover */
 }
 
 .sidebar-list li a .icon {
-  font-size: 24px;
+  font-size: 20px;
   margin-right: 10px;
 }
 
 .sidebar-list li a span {
-  display: none;
   font-size: 16px;
-}
-
-.sidebar.expanded .sidebar-list li a span {
-  display: inline;
+  font-weight: 500;
 }
 
 /* Ensure content is not hidden behind the sidebar */
@@ -66,4 +69,9 @@ body {
 
 .sidebar.expanded ~ body {
   margin-left: 200px;
+}
+
+/* Adjust body margin for collapsed state */
+.sidebar.collapsed ~ body {
+  margin-left: 60px;
 }
