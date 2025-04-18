@@ -13,12 +13,11 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-	origin: ['http://localhost:5173', 'http://localhost:5000'],
-	methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-	allowedHeaders: ['Content-Type', 'Authorization'],
-	credentials: true,
-	maxAge: 86400 // 24 hours
-}));         
+    origin: 'http://localhost:5173', // Frontend URL
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
 app.use(express.json({ limit: "10mb" }));
 
 // Health check route
@@ -26,28 +25,68 @@ app.get("/api/health", (req, res) => {
 	res.json({ status: "OK", timestamp: new Date() });
 });
 
-// Authentication middleware
+// Authentication middleware with enhanced error handling
 const authenticateToken = (req, res, next) => {
     console.log('Authenticating token...');
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    console.log('Auth header:', authHeader);
 
+    const token = authHeader && authHeader.split(' ')[1];
     if (!token) {
-        return res.status(401).json({ error: "Authentication token required" });
+        console.log('No token provided in request');
+        return res.status(401).json({ 
+            error: "Authentication token required",
+            details: "No token found in Authorization header"
+        });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
-        if (err) {
-            return res.status(403).json({ error: "Invalid or expired token" });
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        console.log('Token decoded successfully:', { 
+            userId: decoded.userId,
+            username: decoded.username,
+            exp: new Date(decoded.exp * 1000).toISOString()
+        });
+        
+        // Additional validation
+        if (!decoded.userId) {
+            console.error('Token missing userId');
+            return res.status(400).json({ 
+                error: "Invalid token format",
+                details: "Token is missing required user data"
+            });
         }
-        req.user = user;
-        console.log('Authentication successful for user:', req.user);
+
+        req.user = decoded;
         next();
-    });
+    } catch (err) {
+        console.error('Token verification failed:', err.message);
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).json({ 
+                error: "Token expired",
+                details: "Please log in again"
+            });
+        }
+        return res.status(403).json({ 
+            error: "Invalid token",
+            details: err.message
+        });
+    }
 };
 
 // Route setup
 app.use("/api/image", authenticateToken, imageRoutes);
+
+// Add token verification endpoint
+app.get("/api/verify-token", authenticateToken, (req, res) => {
+    res.json({
+        valid: true,
+        user: {
+            id: req.user.userId,
+            username: req.user.username
+        }
+    });
+});
 
 // Add debugging middleware
 app.use((req, res, next) => {
@@ -55,6 +94,29 @@ app.use((req, res, next) => {
 	console.log('Headers:', req.headers);
 	console.log('Body:', req.body);
 	next();
+});
+
+// Request logging middleware
+app.use((req, res, next) => {
+    const start = Date.now();
+    
+    // Log request details
+    console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    
+    // Log response
+    const originalJson = res.json;
+    res.json = function(body) {
+        const responseTime = Date.now() - start;
+        console.log(`Response (${responseTime}ms):`, JSON.stringify(body, (key, value) => {
+            // Redact sensitive data
+            if (['password', 'token'].includes(key)) return '[REDACTED]';
+            return value;
+        }, 2));
+        return originalJson.call(this, body);
+    };
+    
+    next();
 });
 
 // Core identity that cannot be changed by users
@@ -346,7 +408,7 @@ app.post("/api/register", (req, res) => {
 	});
 });
 
-// Update token expiration time when generating token in login endpoint
+// Login endpoint with enhanced token handling
 app.post("/api/login", (req, res) => {
     const { username, password } = req.body;
 
@@ -367,19 +429,24 @@ app.post("/api/login", (req, res) => {
                 return res.status(401).json({ error: "Invalid username or password" });
             }
 
+            // Include user data in the token
+            const userData = {
+                userId: row.id,
+                username: row.username
+            };
+
             const token = jwt.sign(
-                { userId: row.id, username: row.username },
+                userData,
                 process.env.JWT_SECRET || 'your-secret-key',
-                { expiresIn: '7d' } // Extend token validity to 7 days
+                { expiresIn: '7d' }
             );
+
+            console.log('Generated token with user data:', { ...userData, token: '[REDACTED]' });
 
             res.json({
                 message: "Login successful",
                 token,
-                user: {
-                    id: row.id,
-                    username: row.username
-                }
+                user: userData
             });
         }
     );
@@ -638,7 +705,7 @@ app.get("/api/chats/:chatId/messages", authenticateToken, (req, res) => {
 });
 
 // Expertise endpoint - Store user preferences and expertise domains
-app.post("/api/expertise", (req, res) => {
+app.post("/api/expertise", authenticateToken, (req, res) => {
 	const { user_preferences, expertise_domains } = req.body;
 	
 	if (!user_preferences || !expertise_domains) {
@@ -669,7 +736,7 @@ app.post("/api/expertise", (req, res) => {
 });
 
 // Get user preferences
-app.get("/api/user-preferences/:userId", (req, res) => {
+app.get("/api/user-preferences/:userId", authenticateToken, (req, res) => {
 	const userId = req.params.userId;
 	
 	db.get(
@@ -698,7 +765,7 @@ app.get("/api/user-preferences/:userId", (req, res) => {
 });
 
 // Update user preferences
-app.put("/api/user-preferences/:userId", (req, res) => {
+app.put("/api/user-preferences/:userId", authenticateToken, (req, res) => {
 	const userId = req.params.userId;
 	const { preferences, expertise_domains } = req.body;
 	
@@ -726,21 +793,160 @@ app.put("/api/user-preferences/:userId", (req, res) => {
 // Add a new endpoint to fetch user details
 app.get("/api/user", authenticateToken, (req, res) => {
     const userId = req.user.userId;
+    console.log('DEBUG - User endpoint called:', {
+        userId,
+        headers: req.headers,
+        decodedToken: req.user
+    });
+
+    // Validate userId
+    if (!userId || typeof userId !== 'number') {
+        console.error('Invalid userId in token:', userId);
+        return res.status(400).json({ 
+            error: "Invalid user ID in token",
+            details: `Expected number, got ${typeof userId}`
+        });
+    }
 
     db.get(
         "SELECT id, username, email FROM users WHERE id = ?",
         [userId],
         (err, row) => {
             if (err) {
-                console.error("Error fetching user details:", err);
-                return res.status(500).json({ error: "Internal server error" });
+                console.error("Database error in /api/user:", err);
+                return res.status(500).json({ 
+                    error: "Database error",
+                    details: err.message 
+                });
             }
 
             if (!row) {
-                return res.status(404).json({ error: "User not found" });
+                console.error('User not found in database:', userId);
+                return res.status(404).json({ 
+                    error: "User not found",
+                    details: "No user exists with the ID from your authentication token"
+                });
             }
 
+            console.log('User found:', { id: row.id, username: row.username });
             res.json(row);
+        }
+    );
+});
+
+// Comprehensive token verification endpoint
+app.get("/api/verify-token", authenticateToken, async (req, res) => {
+    const userId = req.user.userId;
+    console.log('Verifying token and user existence for userId:', userId);
+
+    // Check if user exists in database
+    db.get(
+        "SELECT id, username, email FROM users WHERE id = ?",
+        [userId],
+        (err, user) => {
+            if (err) {
+                console.error('Database error during token verification:', err);
+                return res.status(500).json({
+                    error: "Internal server error",
+                    details: "Database error during user verification"
+                });
+            }
+
+            if (!user) {
+                console.error('User not found for token userId:', userId);
+                return res.status(401).json({
+                    error: "Invalid token",
+                    details: "User no longer exists"
+                });
+            }
+
+            // Token is valid and user exists
+            console.log('Token verification successful for user:', user.username);
+            res.json({
+                valid: true,
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email
+                }
+            });
+        }
+    );
+});
+
+// Delete chat history endpoint
+app.delete("/api/chat-history", authenticateToken, (req, res) => {
+    const userId = req.user.userId;
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+        
+        // Delete messages from all chats owned by the user
+        db.run(
+            `DELETE FROM messages 
+             WHERE chat_id IN (
+                 SELECT chat_id FROM chats WHERE user_id = ?
+             )`,
+            [userId],
+            (err) => {
+                if (err) {
+                    console.error("Error deleting messages:", err);
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: "Failed to delete messages" });
+                }
+
+                // Delete all chats owned by the user
+                db.run(
+                    "DELETE FROM chats WHERE user_id = ?",
+                    [userId],
+                    (err) => {
+                        if (err) {
+                            console.error("Error deleting chats:", err);
+                            db.run("ROLLBACK");
+                            return res.status(500).json({ error: "Failed to delete chats" });
+                        }
+                        
+                        db.run("COMMIT");
+                        res.json({ message: "Chat history deleted successfully" });
+                    }
+                );
+            }
+        );
+    });
+});
+
+// Diagnostic endpoint to check user registration
+app.get("/api/check-registration/:username", (req, res) => {
+    const username = req.params.username;
+    
+    db.get(
+        "SELECT id, username, email FROM users WHERE username = ?",
+        [username],
+        (err, row) => {
+            if (err) {
+                console.error("Error checking user registration:", err);
+                return res.status(500).json({ 
+                    error: "Database error",
+                    details: err.message 
+                });
+            }
+
+            if (!row) {
+                return res.status(404).json({ 
+                    error: "User not found",
+                    message: "This username is not registered in the database"
+                });
+            }
+
+            res.json({
+                message: "User found",
+                userExists: true,
+                details: {
+                    id: row.id,
+                    username: row.username,
+                    hasEmail: !!row.email
+                }
+            });
         }
     );
 });
@@ -765,4 +971,13 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (error) => {
 	console.error('Unhandled Rejection:', error);
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error("Unhandled error:", err);
+    res.status(500).json({ 
+        error: "Internal server error",
+        message: err.message
+    });
 });

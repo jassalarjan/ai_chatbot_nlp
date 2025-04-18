@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { ArrowLeft, User, Mail, Bell, Lock, Save, Camera } from "lucide-react";
-import axios from "axios";
+import api from "./api/axios";
 import { useNavigate } from "react-router-dom";
 import "./styles/Profile.css";
 
@@ -22,51 +22,38 @@ const Profile = () => {
 	useEffect(() => {
 		const fetchUserData = async () => {
 			try {
-				const token = localStorage.getItem("authToken"); // Updated key to match login process
-				console.log("Token from localStorage:", token); // Debug log
-
+				const token = localStorage.getItem("authToken");
 				if (!token) {
-					console.log("No token found, redirecting to login"); // Debug log
 					setError("Please log in to view your profile");
 					setLoading(false);
 					navigate("/login");
 					return;
 				}
 
-				console.log("Making API request with token:", token); // Debug log
-				const response = await axios.get("http://localhost:5000/api/user", {
-					headers: {
-						Authorization: `Bearer ${token}`,
-						"Content-Type": "application/json",
-					},
-				});
-
-				console.log("API Response:", response.data); // Debug log
-
+				// Fetch user data directly - token verification is handled by ProtectedRoute
+				const response = await api.get("/api/user");
+				
 				if (response.data) {
 					setUser(response.data);
 					setFormData({
 						username: response.data.username,
-						email: response.data.email,
+						email: response.data.email || "",
 						currentPassword: "",
 						newPassword: "",
 						confirmPassword: "",
 					});
+					setLoading(false);
 				}
-				setLoading(false);
 			} catch (err) {
-				console.error("Error fetching user data:", err);
-				console.error("Error response:", err.response); // Debug log
-				setError(
-					err.response?.data?.message ||
-						"Failed to fetch user data. Please log in again."
-				);
-				setLoading(false);
-				if (err.response?.status === 401) {
-					console.log("401 error, removing token and redirecting to login"); // Debug log
-					localStorage.removeItem("token");
+				console.error("Error fetching user data:", err.response?.data || err.message);
+				setError(err.response?.data?.error || "Failed to fetch user data");
+				
+				if (err.response?.status === 401 || err.response?.status === 403) {
+					localStorage.removeItem("authToken");
 					navigate("/login");
 				}
+			} finally {
+				setLoading(false);
 			}
 		};
 
@@ -102,16 +89,12 @@ const Profile = () => {
 				}
 			}
 
-			const response = await axios.put(
-				"http://localhost:5000/api/user",
-				formData,
-				{
-					headers: {
-						Authorization: `Bearer ${token}`,
-						"Content-Type": "application/json",
-					},
-				}
-			);
+			const response = await api.put("/user", formData, {
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+				},
+			});
 
 			if (response.data) {
 				setUser(response.data);
@@ -122,14 +105,14 @@ const Profile = () => {
 			console.error("Error updating profile:", err);
 			setError(err.response?.data?.message || "Failed to update profile");
 			if (err.response?.status === 401) {
-				localStorage.removeItem("token");
+				localStorage.removeItem("authToken");
 				navigate("/login");
 			}
 		}
 	};
 
 	const handleLogout = () => {
-		localStorage.removeItem("token");
+		localStorage.removeItem("authToken");
 		navigate("/login");
 	};
 
@@ -147,7 +130,7 @@ const Profile = () => {
 					return;
 				}
 
-				await axios.delete("http://localhost:5000/api/chat-history", {
+				await api.delete("/chat-history", {
 					headers: {
 						Authorization: `Bearer ${token}`,
 					},
