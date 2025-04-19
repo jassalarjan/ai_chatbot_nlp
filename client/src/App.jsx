@@ -17,7 +17,6 @@ import Sidebar from './components/Sidebar';
 import ImageGenerator from "./ImageGenerator";
 import TogetherAIChat from './TogetherAIChat';
 
-
 // Import ProtectedRoute from the root src folder
 import ProtectedRoute from "./ProtectedRoute";
 import VoiceRecognition from "./VoiceRecognition";

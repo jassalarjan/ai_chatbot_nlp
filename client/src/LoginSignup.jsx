@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import "./assets/css/login.css";
 import logImage from "./assets/images/log.png";
 import registerImage from "./assets/images/register.png";
-import api from "./api/axios";
+const host = import.meta.env.VITE_HOST;
 
 const LoginSignup = () => {
 	const [isLogin, setIsLogin] = useState(true);
@@ -14,84 +14,57 @@ const LoginSignup = () => {
 		password: "",
 	});
 	const [error, setError] = useState("");
-	const [loading, setLoading] = useState(false);
 	const navigate = useNavigate();
 
+	// Handle input change
 	const handleChange = (e) => {
 		setFormData({ ...formData, [e.target.name]: e.target.value });
-		setError(""); // Clear errors when user types
 	};
 
+	// Handle form submission
 	const handleSubmit = async (e) => {
 		e.preventDefault();
 		setError("");
-		setLoading(true);
 
 		try {
-			console.log("Debug - Attempting", isLogin ? "login" : "registration");
-			const endpoint = isLogin ? "/login" : "/register";
-			
-			// Use our configured api instance
-			const response = await api.post(endpoint, formData);
-			console.log("Debug - Auth response:", {
-				status: response.status,
-				hasToken: !!response.data.token,
-				hasUser: !!response.data.user
-			});
+			const endpoint = isLogin ? "/api/login" : "/api/register";
+			const response = await axios.post(endpoint, formData);
 
 			if (isLogin) {
 				if (response.data.token) {
-					// Store token and user info
+					// Store token with correct key
 					localStorage.setItem("authToken", response.data.token);
 					
+					// Store user info if available
 					if (response.data.user) {
 						localStorage.setItem("userId", response.data.user.id);
 						localStorage.setItem("username", response.data.user.username);
 					}
-
-					// Verify the token immediately
-					try {
-						console.log("Debug - Verifying new token");
-						await api.get("/verify-token");
-						console.log("Debug - Token verified successfully");
-						navigate("/chat");
-					} catch (verifyErr) {
-						// Only show error if it's not a 404 (server startup timing issue)
-						if (verifyErr.response?.status !== 404) {
-							console.error("Debug - Token verification failed:", verifyErr);
-							localStorage.removeItem("authToken");
-							setError("Authentication failed. Please try logging in again.");
-						} else {
-							// If it's a 404, just proceed with navigation
-							console.log("Debug - Verify token endpoint not ready, proceeding anyway");
-							navigate("/chat");
-						}
-					}
+					
+					// Set default axios headers for future requests
+					axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+					
+					navigate("/chat");
 				}
 			} else {
+				// Handle registration success
 				if (response.data.message === "User registered successfully") {
-					console.log("Debug - Registration successful");
-					setError("");
-					setIsLogin(true);
+					setError(""); // Clear any errors
+					toggleForm(true); // Switch to login form
+					// Optional: Show success message
 					alert("Registration successful! Please login.");
-					setFormData({ username: "", email: "", password: "" });
 				}
 			}
+
+			// Reset form after success
+			setFormData({ username: "", email: "", password: "" });
 		} catch (err) {
-			console.error("Debug - Auth error:", {
-				status: err.response?.status,
-				message: err.response?.data?.error || err.message
-			});
-			
-			setError(
-				err.response?.data?.error || 
-				"An error occurred during " + (isLogin ? "login" : "registration")
-			);
-		} finally {
-			setLoading(false);
+			console.error("Authentication error:", err);
+			setError(err.response?.data?.error || "An error occurred");
 		}
 	};
 
+	// Toggle between login and signup
 	const toggleForm = (isLoginMode) => {
 		setIsLogin(isLoginMode);
 		setError("");
@@ -115,11 +88,6 @@ const LoginSignup = () => {
 									{error}
 								</div>
 							)}
-							{loading && (
-								<div className="loading-spinner">
-									Loading...
-								</div>
-							)}
 							<div className="input-field">
 								<i className="fas fa-user"></i>
 								<input
@@ -129,7 +97,6 @@ const LoginSignup = () => {
 									value={formData.username}
 									onChange={handleChange}
 									required
-									disabled={loading}
 								/>
 							</div>
 							<div className="input-field">
@@ -141,22 +108,15 @@ const LoginSignup = () => {
 									value={formData.password}
 									onChange={handleChange}
 									required
-									disabled={loading}
 								/>
 							</div>
-							<input 
-								type="submit" 
-								value={loading ? "Please wait..." : "Login"} 
-								className="btn solid" 
-								disabled={loading}
-							/>
+							<input type="submit" value="Login" className="btn solid" />
 							<p className="social-text">
 								Don't have an account?{" "}
 								<button
 									type="button"
 									className="btn transparent"
 									onClick={() => toggleForm(false)}
-									disabled={loading}
 								>
 									Sign up
 								</button>
@@ -164,7 +124,7 @@ const LoginSignup = () => {
 						</form>
 
 						{/* Sign Up Form */}
-						<form onSubmit={handleSubmit} className="form sign-up-form">
+						<form onSubmit={handleSubmit} className="form  sign-up-form">
 							<h2 className="title">Sign up</h2>
 							{error && (
 								<div
@@ -173,11 +133,6 @@ const LoginSignup = () => {
 									aria-live="polite"
 								>
 									{error}
-								</div>
-							)}
-							{loading && (
-								<div className="loading-spinner">
-									Loading...
 								</div>
 							)}
 							<div className="input-field">
@@ -189,7 +144,6 @@ const LoginSignup = () => {
 									value={formData.username}
 									onChange={handleChange}
 									required
-									disabled={loading}
 								/>
 							</div>
 							<div className="input-field">
@@ -201,7 +155,6 @@ const LoginSignup = () => {
 									value={formData.email}
 									onChange={handleChange}
 									required
-									disabled={loading}
 								/>
 							</div>
 							<div className="input-field">
@@ -213,22 +166,15 @@ const LoginSignup = () => {
 									value={formData.password}
 									onChange={handleChange}
 									required
-									disabled={loading}
 								/>
 							</div>
-							<input 
-								type="submit" 
-								value={loading ? "Please wait..." : "Sign up"} 
-								className="btn solid"
-								disabled={loading}
-							/>
+							<input type="submit" value="Sign up" className="btn solid" />
 							<p className="social-text">
 								Already have an account?{" "}
 								<button
 									type="button"
 									className="btn transparent"
 									onClick={() => toggleForm(true)}
-									disabled={loading}
 								>
 									Sign in
 								</button>
@@ -237,35 +183,39 @@ const LoginSignup = () => {
 					</div>
 				</div>
 
+				{/* Panels */}
 				<div className="panels-container">
 					<div className="panel left-panel">
 						<div className="content">
 							<h3>New here?</h3>
-							<p>Join us to unlock the full potential of AI!</p>
+							<p>Join us to start your journey with our intelligent chatbot!</p>
 							<button
+								type="button"
 								className="btn transparent"
 								onClick={() => toggleForm(false)}
-								disabled={loading}
 							>
 								Sign up
 							</button>
 						</div>
-						<img src={logImage} className="image" alt="" />
+						<img
+							src={registerImage}
+							className="image"
+							alt="Sign up illustration"
+						/>
 					</div>
-
 					<div className="panel right-panel">
 						<div className="content">
 							<h3>One of us?</h3>
-							<p>Sign in to continue your AI journey!</p>
+							<p>Welcome back! Sign in to continue your conversation.</p>
 							<button
+								type="button"
 								className="btn transparent"
 								onClick={() => toggleForm(true)}
-								disabled={loading}
 							>
 								Sign in
 							</button>
 						</div>
-						<img src={registerImage} className="image" alt="" />
+						<img src={logImage} className="image" alt="Sign in illustration" />
 					</div>
 				</div>
 			</div>

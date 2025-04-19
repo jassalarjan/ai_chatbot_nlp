@@ -4,7 +4,6 @@ import api from "./api/axios";
 
 const ProtectedRoute = ({ children }) => {
     const [isVerifying, setIsVerifying] = useState(true);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
     const token = localStorage.getItem("authToken");
 
     useEffect(() => {
@@ -15,29 +14,27 @@ const ProtectedRoute = ({ children }) => {
             }
             
             try {
-                const response = await api.get('/api/verify-token');
-                if (response.data.valid) {
-                    setIsAuthenticated(true);
-                }
+                await api.get('/health');
+                setIsVerifying(false);
             } catch (error) {
                 if (error.response?.status === 401 || error.response?.status === 403) {
+                    // Clear invalid token
                     localStorage.removeItem("authToken");
                     localStorage.removeItem("userId");
                     localStorage.removeItem("username");
                 }
-            } finally {
                 setIsVerifying(false);
             }
         };
 
         verifyToken();
-    }, [token]); // Only re-run when token changes
+    }, [token]);
 
     if (isVerifying) {
-        return <div>Loading...</div>; // Add a loading indicator
+        return null; // or a loading spinner
     }
 
-    if (!token || !isAuthenticated) {
+    if (!token) {
         return <Navigate to="/login" replace />;
     }
 
